@@ -26,6 +26,10 @@ public final class FirewallDashboardViewModel: ObservableObject {
     @Published public var selectedConnectionNote = ""
     @Published public var networkToolOutput = ""
     @Published public var isNetworkToolRunning = false
+    @Published public var startupStatus = StartupProtectionStatus()
+    @Published public var loginItemStatus = "Unknown"
+    @Published public var showStartupProtectionConfirmation = false
+    @Published public var showStrictStartupConfirmation = false
 
     public let liveConnectionsViewModel: LiveConnectionsViewModel
     private let database: FirewallDatabase
@@ -34,6 +38,8 @@ public final class FirewallDashboardViewModel: ObservableObject {
     private let firewallService: FirewallBlockService
     private let lookupService = LookupService()
     private let networkToolRunner = NetworkToolRunner()
+    private let loginItemService = LoginItemService()
+    private let startupProtectionService = StartupProtectionService()
 
     public init(database: FirewallDatabase, liveConnectionsViewModel: LiveConnectionsViewModel, firewallService: FirewallBlockService) {
         self.database = database
@@ -53,8 +59,10 @@ public final class FirewallDashboardViewModel: ObservableObject {
             geoRanges = try database.geoRanges()
             events = try database.events()
             liveConnectionsViewModel.refreshInterval = settings.refreshInterval
+            loginItemStatus = loginItemService.status()
             rebuildPreview()
             rebuildSnapshot()
+            Task { await refreshStartupStatus() }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -135,9 +143,80 @@ public final class FirewallDashboardViewModel: ObservableObject {
         do {
             try database.save(settings: settings)
             liveConnectionsViewModel.refreshInterval = settings.refreshInterval
+            try loginItemService.setEnabled(settings.launchAtLogin)
             reload()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    public func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            try loginItemService.setEnabled(enabled)
+            settings.launchAtLogin = enabled
+            try database.save(settings: settings)
+            loginItemStatus = loginItemService.status()
+        } catch {
+            settings.launchAtLogin = false
+            errorMessage = error.localizedDescription
+            loginItemStatus = loginItemService.status()
+        }
+    }
+
+    public func requestStartupProtectionApply() {
+        if settings.startupMode == .monitorOnly {
+            Task { await rollbackStartupProtection() }
+        } else if settings.startupMode == .strictStartupLock {
+            showStrictStartupConfirmation = true
+        } else {
+            showStartupProtectionConfirmation = true
+        }
+    }
+
+    public func confirmStartupProtection(acknowledged: Bool) {
+        guard acknowledged else {
+            errorMessage = "Acknowledge the startup protection warning before applying."
+            return
+        }
+        showStartupProtectionConfirmation = false
+        showStrictStartupConfirmation = false
+        Task { await installStartupProtection() }
+    }
+
+    public func refreshStartupStatus() async {
+        startupStatus = await startupProtectionService.status(settings: settings)
+    }
+
+    public func installStartupProtection() async {
+        do {
+            try await startupProtectionService.install(mode: settings.startupMode, rulePreview: rulePreview, backup: settings.backupAnchorBeforeRewrite)
+            settings.startupAcknowledged = true
+            settings.startupAnchorInstalled = settings.startupMode != .monitorOnly
+            settings.startupRulesLoaded = settings.startupMode != .monitorOnly
+            settings.lastStartupSynchronizationAt = Date()
+            try database.save(settings: settings)
+            try database.insertEvent(type: "Startup protection synchronized", message: settings.startupMode.rawValue, detail: StartupProtectionService.startupAnchor, succeeded: true)
+            reload()
+        } catch {
+            try? database.insertEvent(type: "Startup protection failed", message: settings.startupMode.rawValue, detail: error.localizedDescription, succeeded: false)
+            errorMessage = error.localizedDescription
+            reload()
+        }
+    }
+
+    public func rollbackStartupProtection() async {
+        do {
+            try await startupProtectionService.rollback()
+            settings.startupMode = .monitorOnly
+            settings.startupAnchorInstalled = false
+            settings.startupRulesLoaded = false
+            settings.lastStartupSynchronizationAt = Date()
+            try database.save(settings: settings)
+            try database.insertEvent(type: "Startup protection disabled", message: "Rolled back startup anchor", detail: StartupProtectionService.startupAnchor, succeeded: true)
+            reload()
+        } catch {
+            errorMessage = error.localizedDescription
+            reload()
         }
     }
 

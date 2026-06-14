@@ -48,9 +48,7 @@ public struct FirewallDashboardView: View {
                 case .logs:
                     logs
                 case .settings:
-                    FirewallSettingsView(settings: $viewModel.settings) {
-                        viewModel.saveSettings()
-                    }
+                    FirewallSettingsView(viewModel: viewModel)
                 }
             }
             .navigationTitle(viewModel.selectedSection?.rawValue ?? "Dashboard")
@@ -676,28 +674,106 @@ public struct RulesPreviewView: View {
 }
 
 public struct FirewallSettingsView: View {
-    @Binding var settings: FirewallSettings
-    let save: () -> Void
+    @ObservedObject var viewModel: FirewallDashboardViewModel
+    @State private var acknowledgedStartupRisk = false
+    @State private var acknowledgedStrictRisk = false
 
     public var body: some View {
         Form {
-            Picker("Refresh interval", selection: $settings.refreshInterval) {
-                ForEach(RefreshInterval.allCases) { Text($0.rawValue).tag($0) }
+            Section("Startup") {
+                Toggle("Launch Connection Manager on boot", isOn: Binding(
+                    get: { viewModel.settings.launchAtLogin },
+                    set: { viewModel.setLaunchAtLogin($0) }
+                ))
+                LabeledContent("Status", value: viewModel.loginItemStatus)
+                LabeledContent("Last startup", value: viewModel.settings.lastStartupAt.map(Self.dateFormatter.string(from:)) ?? "-")
             }
-            Toggle("Auto-apply imported blocklists", isOn: $settings.autoApplyImportedBlocklists)
-            Toggle("Confirm before applying firewall changes", isOn: $settings.confirmBeforeApplying)
-            Toggle("Backup previous app anchor file before rewriting", isOn: $settings.backupAnchorBeforeRewrite)
-            TextField("PF anchor path", text: $settings.anchorPath)
-            TextField("App anchor name", text: $settings.anchorName)
-            Picker("Default lookup provider", selection: $settings.defaultLookupProviderID) {
-                ForEach(LookupProvider.presets) { provider in
-                    Text("\(provider.name) - \(provider.category.rawValue)").tag(provider.id)
+
+            Section("Startup Protection") {
+                Text("This feature can affect network connectivity during startup. Incorrect firewall rules may temporarily prevent internet access until corrected.")
+                    .foregroundStyle(.orange)
+                Picker("Startup Mode", selection: $viewModel.settings.startupMode) {
+                    ForEach(StartupProtectionMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                ForEach(StartupProtectionMode.allCases) { mode in
+                    Text("\(mode.rawValue): \(mode.detail)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("PF Enabled", value: viewModel.startupStatus.pfEnabled)
+                LabeledContent("Startup Anchor Installed", value: viewModel.startupStatus.startupAnchorInstalled ? "Yes" : "No")
+                LabeledContent("Rules Loaded", value: viewModel.startupStatus.rulesLoaded ? "Yes" : "No")
+                LabeledContent("Last Synchronization", value: viewModel.startupStatus.lastSynchronization.map(Self.dateFormatter.string(from:)) ?? "-")
+                HStack {
+                    Button("Apply Startup Protection") {
+                        viewModel.requestStartupProtectionApply()
+                    }
+                    Button("Rollback Startup Protection") {
+                        Task { await viewModel.rollbackStartupProtection() }
+                    }
+                    Button("Refresh Status") {
+                        Task { await viewModel.refreshStartupStatus() }
+                    }
                 }
             }
-            Toggle("Do not show GeoIP/reputation lookup privacy warning again", isOn: $settings.suppressLookupPrivacyWarning)
-            Toggle("Do not show traceroute warning again", isOn: $settings.suppressTracerouteWarning)
-            Button("Save Settings", action: save)
+
+            Section("Firewall") {
+                Toggle("Auto-apply imported blocklists", isOn: $viewModel.settings.autoApplyImportedBlocklists)
+                Toggle("Confirm before applying firewall changes", isOn: $viewModel.settings.confirmBeforeApplying)
+                Toggle("Backup previous app anchor file before rewriting", isOn: $viewModel.settings.backupAnchorBeforeRewrite)
+                TextField("PF anchor path", text: $viewModel.settings.anchorPath)
+                TextField("App anchor name", text: $viewModel.settings.anchorName)
+            }
+
+            Section("Live Connections") {
+                Picker("Refresh interval", selection: $viewModel.settings.refreshInterval) {
+                    ForEach(RefreshInterval.allCases) { Text($0.rawValue).tag($0) }
+                }
+            }
+
+            Section("Lookups") {
+                Picker("Default lookup provider", selection: $viewModel.settings.defaultLookupProviderID) {
+                    ForEach(LookupProvider.presets) { provider in
+                        Text("\(provider.name) - \(provider.category.rawValue)").tag(provider.id)
+                    }
+                }
+                Toggle("Do not show GeoIP/reputation lookup privacy warning again", isOn: $viewModel.settings.suppressLookupPrivacyWarning)
+                Toggle("Do not show traceroute warning again", isOn: $viewModel.settings.suppressTracerouteWarning)
+            }
+
+            Button("Save Settings") {
+                viewModel.saveSettings()
+            }
         }
         .padding(18)
+        .alert("Enable Protection at Boot?", isPresented: $viewModel.showStartupProtectionConfirmation) {
+            Toggle("I understand this may affect network connectivity during startup.", isOn: $acknowledgedStartupRisk)
+            Button("Cancel", role: .cancel) { acknowledgedStartupRisk = false }
+            Button("Install Startup Anchor", role: .destructive) {
+                viewModel.confirmStartupProtection(acknowledged: acknowledgedStartupRisk)
+                acknowledgedStartupRisk = false
+            }
+        } message: {
+            Text("Connection Manager will install and load the dedicated startup PF anchor \(StartupProtectionService.startupAnchor). Incorrect firewall rules may temporarily prevent internet access until corrected.")
+        }
+        .alert("Strict Startup Lock", isPresented: $viewModel.showStrictStartupConfirmation) {
+            Toggle("I have read the recovery warning and accept the risk.", isOn: $acknowledgedStrictRisk)
+            Button("Cancel", role: .cancel) { acknowledgedStrictRisk = false }
+            Button("Enable Strict Startup Lock", role: .destructive) {
+                viewModel.confirmStartupProtection(acknowledged: acknowledgedStrictRisk)
+                acknowledgedStrictRisk = false
+            }
+        } message: {
+            Text("Strict Startup Lock can block most network traffic until Connection Manager starts. Recovery: reopen Settings and use Rollback Startup Protection, or remove /etc/pf.anchors/com.connectionmanager.startup with administrator privileges and reload that anchor.")
+        }
     }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        return formatter
+    }()
 }

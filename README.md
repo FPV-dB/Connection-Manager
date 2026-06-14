@@ -28,6 +28,33 @@ The main window is `Firewall Dashboard` and includes:
 
 Closing the window hides it instead of quitting. The app remains available from the menu bar extra named `Connections`.
 
+## Startup
+
+Settings includes a Startup section:
+
+- Launch Connection Manager on boot
+- Startup Mode
+- PF startup status
+- Last startup and last synchronization timestamps
+
+Launch on boot uses modern macOS login item APIs through `SMAppService`. macOS may require approval in System Settings depending on local policy.
+
+Startup protection is separate from launch on boot. It uses dedicated PF anchors only:
+
+```text
+com.connectionmanager.startup
+com.connectionmanager.rules
+com.connectionmanager.blocklists
+```
+
+Startup modes:
+
+- Monitor Only: no startup PF rules.
+- Protection at Boot: keeps app-managed rules active and synchronizes after the app launches.
+- Strict Startup Lock: advanced mode that blocks most non-essential traffic until Connection Manager starts.
+
+Strict Startup Lock is never enabled by default and requires a second confirmation. Recovery: open Settings and use Rollback Startup Protection, or remove `/etc/pf.anchors/com.connectionmanager.startup` with administrator privileges and reload that anchor. The app never modifies unrelated anchors.
+
 ## Data Collection
 
 Live connections are collected with macOS command-line tools through `Process` on background tasks:

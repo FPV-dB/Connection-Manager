@@ -11,6 +11,7 @@ struct LiveConnectionsMonitorApp: App {
         let database: FirewallDatabase
         do {
             database = try FirewallDatabase()
+            try? database.recordStartup()
         } catch {
             fatalError("Unable to open firewall dashboard database: \(error.localizedDescription)")
         }

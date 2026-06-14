@@ -160,6 +160,39 @@ public struct FirewallSettings: Hashable, Sendable {
     public var defaultLookupProviderID = "ipinfo"
     public var suppressLookupPrivacyWarning = false
     public var suppressTracerouteWarning = false
+    public var launchAtLogin = false
+    public var startupMode: StartupProtectionMode = .monitorOnly
+    public var startupAcknowledged = false
+    public var lastStartupAt: Date?
+    public var lastStartupSynchronizationAt: Date?
+    public var startupAnchorInstalled = false
+    public var startupRulesLoaded = false
+}
+
+public enum StartupProtectionMode: String, CaseIterable, Identifiable, Sendable {
+    case monitorOnly = "Monitor Only"
+    case protectionAtBoot = "Protection at Boot"
+    case strictStartupLock = "Strict Startup Lock"
+
+    public var id: String { rawValue }
+
+    public var detail: String {
+        switch self {
+        case .monitorOnly:
+            return "No startup PF rules. App launches normally."
+        case .protectionAtBoot:
+            return "Existing app firewall rules remain active and synchronize after launch."
+        case .strictStartupLock:
+            return "Advanced: block non-essential traffic until Connection Manager starts."
+        }
+    }
+}
+
+public struct StartupProtectionStatus: Sendable, Hashable {
+    public var pfEnabled = "Unknown"
+    public var startupAnchorInstalled = false
+    public var rulesLoaded = false
+    public var lastSynchronization: Date?
 }
 
 public struct FirewallDashboardSnapshot: Sendable {

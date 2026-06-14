@@ -104,6 +104,13 @@ public final class FirewallDatabase: @unchecked Sendable {
                 case "defaultLookupProviderID": if !value.isEmpty { settings.defaultLookupProviderID = value }
                 case "suppressLookupPrivacyWarning": settings.suppressLookupPrivacyWarning = value == "1"
                 case "suppressTracerouteWarning": settings.suppressTracerouteWarning = value == "1"
+                case "launchAtLogin": settings.launchAtLogin = value == "1"
+                case "startupMode": settings.startupMode = StartupProtectionMode(rawValue: value) ?? .monitorOnly
+                case "startupAcknowledged": settings.startupAcknowledged = value == "1"
+                case "lastStartupAt": settings.lastStartupAt = Double(value).map(Date.init(timeIntervalSince1970:))
+                case "lastStartupSynchronizationAt": settings.lastStartupSynchronizationAt = Double(value).map(Date.init(timeIntervalSince1970:))
+                case "startupAnchorInstalled": settings.startupAnchorInstalled = value == "1"
+                case "startupRulesLoaded": settings.startupRulesLoaded = value == "1"
                 default: break
                 }
             }
@@ -122,11 +129,24 @@ public final class FirewallDatabase: @unchecked Sendable {
                 ("refreshInterval", settings.refreshInterval.rawValue),
                 ("defaultLookupProviderID", settings.defaultLookupProviderID),
                 ("suppressLookupPrivacyWarning", settings.suppressLookupPrivacyWarning ? "1" : "0"),
-                ("suppressTracerouteWarning", settings.suppressTracerouteWarning ? "1" : "0")
+                ("suppressTracerouteWarning", settings.suppressTracerouteWarning ? "1" : "0"),
+                ("launchAtLogin", settings.launchAtLogin ? "1" : "0"),
+                ("startupMode", settings.startupMode.rawValue),
+                ("startupAcknowledged", settings.startupAcknowledged ? "1" : "0"),
+                ("lastStartupAt", settings.lastStartupAt.map { String($0.timeIntervalSince1970) } ?? ""),
+                ("lastStartupSynchronizationAt", settings.lastStartupSynchronizationAt.map { String($0.timeIntervalSince1970) } ?? ""),
+                ("startupAnchorInstalled", settings.startupAnchorInstalled ? "1" : "0"),
+                ("startupRulesLoaded", settings.startupRulesLoaded ? "1" : "0")
             ] {
                 try execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [.text(key), .text(value)])
             }
         }
+    }
+
+    public func recordStartup(at date: Date = Date()) throws {
+        var current = try settings()
+        current.lastStartupAt = date
+        try save(settings: current)
     }
 
     public func insertManualBlock(address: String, direction: FirewallDirection, note: String, source: FirewallRuleSource = .manual) throws {
