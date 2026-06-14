@@ -405,6 +405,12 @@ public struct FirewallDashboardView: View {
 
 public struct FirewallLiveConnectionsPage: View {
     @ObservedObject var viewModel: FirewallDashboardViewModel
+    @ObservedObject private var liveViewModel: LiveConnectionsViewModel
+
+    public init(viewModel: FirewallDashboardViewModel) {
+        self.viewModel = viewModel
+        self._liveViewModel = ObservedObject(wrappedValue: viewModel.liveConnectionsViewModel)
+    }
 
     public var body: some View {
         VStack(spacing: 0) {
@@ -420,33 +426,44 @@ public struct FirewallLiveConnectionsPage: View {
     private var toolbar: some View {
         HStack {
             TextField("Search process, IP, port, protocol", text: Binding(
-                get: { viewModel.liveConnectionsViewModel.searchText },
-                set: { viewModel.liveConnectionsViewModel.searchText = $0 }
+                get: { liveViewModel.searchText },
+                set: { liveViewModel.searchText = $0 }
             ))
             .textFieldStyle(.roundedBorder)
             Picker("Interval", selection: Binding(
-                get: { viewModel.liveConnectionsViewModel.refreshInterval },
-                set: { viewModel.liveConnectionsViewModel.refreshInterval = $0 }
+                get: { liveViewModel.refreshInterval },
+                set: { liveViewModel.refreshInterval = $0 }
             )) {
                 ForEach(RefreshInterval.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented)
             .frame(width: 360)
-            Picker("Sort by", selection: Binding(
-                get: { viewModel.liveConnectionsViewModel.sortField },
-                set: { viewModel.liveConnectionsViewModel.sortField = $0 }
-            )) {
+            Menu {
                 ForEach(ConnectionSortField.allCases) { field in
-                    Text(field.rawValue).tag(field)
+                    Button {
+                        liveViewModel.sortField = field
+                    } label: {
+                        HStack {
+                            Text(field.rawValue)
+                            if liveViewModel.sortField == field {
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
                 }
-            }
-            .frame(width: 160)
-            Button {
-                viewModel.liveConnectionsViewModel.sortAscending.toggle()
             } label: {
-                Image(systemName: viewModel.liveConnectionsViewModel.sortAscending ? "arrow.up" : "arrow.down")
+                Label("Sort: \(liveViewModel.sortField.rawValue)", systemImage: "arrow.up.arrow.down")
             }
-            .help(viewModel.liveConnectionsViewModel.sortAscending ? "Ascending" : "Descending")
+            Button {
+                liveViewModel.sortAscending.toggle()
+            } label: {
+                Label(liveViewModel.sortAscending ? "Ascending" : "Descending", systemImage: liveViewModel.sortAscending ? "arrow.up" : "arrow.down")
+            }
+            .help(liveViewModel.sortAscending ? "Ascending" : "Descending")
+            Text("\(liveViewModel.sortField.rawValue) \(liveViewModel.sortAscending ? "Asc" : "Desc")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 92, alignment: .leading)
             Button("Geo Lookup") { viewModel.requestLookup() }
                 .disabled(!canLookupSelected)
             Menu("Lookup With...") {
@@ -454,11 +471,11 @@ public struct FirewallLiveConnectionsPage: View {
             }
             .disabled(!canLookupSelected)
             Button("Copy IP") { viewModel.copySelectedRemoteIP() }
-                .disabled(viewModel.liveConnectionsViewModel.selectedConnection?.remote?.address == nil)
+                .disabled(liveViewModel.selectedConnection?.remote?.address == nil)
             Button("Block IP") { blockSelected() }
-                .disabled(viewModel.liveConnectionsViewModel.selectedConnection?.remote?.address == nil)
-            Button("Refresh") { Task { await viewModel.liveConnectionsViewModel.refreshNow() } }
-            Text("Last refreshed: \(viewModel.liveConnectionsViewModel.lastRefreshedAt.map(Self.timeFormatter.string(from:)) ?? "-")")
+                .disabled(liveViewModel.selectedConnection?.remote?.address == nil)
+            Button("Refresh") { Task { await liveViewModel.refreshNow() } }
+            Text("Last refreshed: \(liveViewModel.lastRefreshedAt.map(Self.timeFormatter.string(from:)) ?? "-")")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
@@ -467,9 +484,9 @@ public struct FirewallLiveConnectionsPage: View {
     }
 
     private var connectionTable: some View {
-        Table(viewModel.liveConnectionsViewModel.filteredConnections, selection: Binding(
-            get: { viewModel.liveConnectionsViewModel.selectedConnectionID },
-            set: { viewModel.liveConnectionsViewModel.selectedConnectionID = $0 }
+        Table(liveViewModel.filteredConnections, selection: Binding(
+            get: { liveViewModel.selectedConnectionID },
+            set: { liveViewModel.selectedConnectionID = $0 }
         )) {
             TableColumn("Process") { connection in processCell(connection) }
             .width(150)
@@ -499,7 +516,7 @@ public struct FirewallLiveConnectionsPage: View {
         VStack(alignment: .leading, spacing: 12) {
             Label("Connection Details", systemImage: "info.circle")
                 .font(.headline)
-            if let connection = viewModel.liveConnectionsViewModel.selectedConnection {
+            if let connection = liveViewModel.selectedConnection {
                 detail("Remote IP", connection.remote?.address ?? "-")
                 detail("Remote port", connection.remote?.port ?? "-")
                 detail("Process", connection.processName)
@@ -558,7 +575,7 @@ public struct FirewallLiveConnectionsPage: View {
                 Button("Ping") { viewModel.runNetworkTool(.ping) }
                     .disabled(!canLookupSelected || viewModel.isNetworkToolRunning)
                 Button("Copy IP") { viewModel.copySelectedRemoteIP() }
-                    .disabled(viewModel.liveConnectionsViewModel.selectedConnection?.remote?.address == nil)
+                    .disabled(liveViewModel.selectedConnection?.remote?.address == nil)
             }
             if viewModel.isNetworkToolRunning {
                 ProgressView()
@@ -604,23 +621,23 @@ public struct FirewallLiveConnectionsPage: View {
     @ViewBuilder
     private func contextMenu(for connection: NetworkConnection) -> some View {
         Button("Geo Lookup") {
-            viewModel.liveConnectionsViewModel.selectedConnectionID = connection.id
+            liveViewModel.selectedConnectionID = connection.id
             viewModel.requestLookup()
         }
         Menu("Lookup with...") {
             ForEach(LookupProvider.presets) { provider in
                 Button(provider.name) {
-                    viewModel.liveConnectionsViewModel.selectedConnectionID = connection.id
+                    liveViewModel.selectedConnectionID = connection.id
                     viewModel.requestLookup(providerID: provider.id)
                 }
             }
         }
         Button("Copy remote IP") {
-            viewModel.liveConnectionsViewModel.selectedConnectionID = connection.id
+            liveViewModel.selectedConnectionID = connection.id
             viewModel.copySelectedRemoteIP()
         }
         Button("Block remote IP") {
-            viewModel.liveConnectionsViewModel.selectedConnectionID = connection.id
+            liveViewModel.selectedConnectionID = connection.id
             blockSelected()
         }
     }
@@ -690,13 +707,13 @@ public struct FirewallLiveConnectionsPage: View {
     }
 
     private func blockSelected() {
-        if let ip = viewModel.liveConnectionsViewModel.selectedConnection?.remote?.address {
+        if let ip = liveViewModel.selectedConnection?.remote?.address {
             viewModel.addManualBlock(ip, note: viewModel.selectedConnectionNote.isEmpty ? "Blocked from live connection" : viewModel.selectedConnectionNote)
         }
     }
 
     private var canLookupSelected: Bool {
-        guard let ip = viewModel.liveConnectionsViewModel.selectedConnection?.remote?.address else { return false }
+        guard let ip = liveViewModel.selectedConnection?.remote?.address else { return false }
         if case .success = LookupService().canLookup(ip: ip) {
             return true
         }

@@ -10,8 +10,20 @@ public final class LiveConnectionsViewModel: ObservableObject {
         didSet { restartLoop() }
     }
     @Published public var selectedConnectionID: NetworkConnection.ID?
-    @Published public var sortField: ConnectionSortField = .process
-    @Published public var sortAscending = true
+    @Published public var sortField: ConnectionSortField = .process {
+        didSet {
+            if oldValue != sortField {
+                resortConnections()
+            }
+        }
+    }
+    @Published public var sortAscending = true {
+        didSet {
+            if oldValue != sortAscending {
+                resortConnections()
+            }
+        }
+    }
     @Published public var errorMessage: String?
     @Published public var isRefreshing = false
     @Published public private(set) var lastRefreshedAt: Date?
@@ -172,6 +184,14 @@ public final class LiveConnectionsViewModel: ObservableObject {
             } else if selectedID != nil {
                 selectedConnectionID = nil
             }
+        }
+    }
+
+    private func resortConnections() {
+        let selectedID = selectedConnectionID
+        withTransaction(Transaction(animation: nil)) {
+            connections.sort(by: sort)
+            selectedConnectionID = selectedID
         }
     }
 
