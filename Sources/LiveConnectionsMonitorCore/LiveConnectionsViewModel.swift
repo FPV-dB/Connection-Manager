@@ -10,6 +10,8 @@ public final class LiveConnectionsViewModel: ObservableObject {
         didSet { restartLoop() }
     }
     @Published public var selectedConnectionID: NetworkConnection.ID?
+    @Published public var sortField: ConnectionSortField = .process
+    @Published public var sortAscending = true
     @Published public var errorMessage: String?
     @Published public var isRefreshing = false
     @Published public private(set) var lastRefreshedAt: Date?
@@ -33,8 +35,11 @@ public final class LiveConnectionsViewModel: ObservableObject {
 
     public var filteredConnections: [NetworkConnection] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return connections }
-        return connections.filter { connection in
+        let filtered: [NetworkConnection]
+        if query.isEmpty {
+            filtered = connections
+        } else {
+            filtered = connections.filter { connection in
             [
                 connection.processName,
                 connection.pid.map(String.init) ?? "",
@@ -44,9 +49,13 @@ public final class LiveConnectionsViewModel: ObservableObject {
                 connection.local.port,
                 connection.remote?.address ?? "",
                 connection.remote?.port ?? "",
-                connection.state
+                connection.state,
+                connection.bytesIn.map(String.init) ?? "",
+                connection.bytesOut.map(String.init) ?? ""
             ].joined(separator: " ").lowercased().contains(query)
+            }
         }
+        return filtered.sorted(by: sort)
     }
 
     public var selectedConnection: NetworkConnection? {
@@ -149,9 +158,9 @@ public final class LiveConnectionsViewModel: ObservableObject {
         }
 
         let existingIDs = Set(merged.map(\.id))
-        let newRows = scanned.filter { !existingIDs.contains($0.id) }.sorted(by: stableSort)
+        let newRows = scanned.filter { !existingIDs.contains($0.id) }.sorted(by: sort)
         merged.append(contentsOf: newRows)
-        merged.sort(by: stableSort)
+        merged.sort(by: sort)
 
         let liveIDs = Set(merged.map(\.id))
         staleMisses = staleMisses.filter { liveIDs.contains($0.key) }
@@ -166,11 +175,42 @@ public final class LiveConnectionsViewModel: ObservableObject {
         }
     }
 
-    private func stableSort(_ lhs: NetworkConnection, _ rhs: NetworkConnection) -> Bool {
-        if lhs.processName != rhs.processName {
-            return lhs.processName.localizedCaseInsensitiveCompare(rhs.processName) == .orderedAscending
+    private func sort(_ lhs: NetworkConnection, _ rhs: NetworkConnection) -> Bool {
+        let ascending: Bool
+        switch sortField {
+        case .process: ascending = lhs.processName.localizedCaseInsensitiveCompare(rhs.processName) == .orderedAscending
+        case .pid: ascending = lhs.pidSortValue < rhs.pidSortValue
+        case .proto: ascending = lhs.protocolSortValue < rhs.protocolSortValue
+        case .direction: ascending = lhs.directionSortValue < rhs.directionSortValue
+        case .localAddress: ascending = lhs.localAddressSortValue < rhs.localAddressSortValue
+        case .localPort: ascending = lhs.localPortSortValue < rhs.localPortSortValue
+        case .remoteAddress: ascending = lhs.remoteAddressSortValue < rhs.remoteAddressSortValue
+        case .remotePort: ascending = lhs.remotePortSortValue < rhs.remotePortSortValue
+        case .state: ascending = lhs.state < rhs.state
+        case .bytesIn: ascending = lhs.bytesInSortValue < rhs.bytesInSortValue
+        case .bytesOut: ascending = lhs.bytesOutSortValue < rhs.bytesOutSortValue
+        case .inboundRate: ascending = lhs.bytesInRateSortValue < rhs.bytesInRateSortValue
+        case .outboundRate: ascending = lhs.bytesOutRateSortValue < rhs.bytesOutRateSortValue
         }
-        if (lhs.pid ?? 0) != (rhs.pid ?? 0) { return (lhs.pid ?? 0) < (rhs.pid ?? 0) }
-        return lhs.id < rhs.id
+        if valueEqual(lhs, rhs) { return lhs.id < rhs.id }
+        return sortAscending ? ascending : !ascending
+    }
+
+    private func valueEqual(_ lhs: NetworkConnection, _ rhs: NetworkConnection) -> Bool {
+        switch sortField {
+        case .process: lhs.processName == rhs.processName
+        case .pid: lhs.pidSortValue == rhs.pidSortValue
+        case .proto: lhs.protocolSortValue == rhs.protocolSortValue
+        case .direction: lhs.directionSortValue == rhs.directionSortValue
+        case .localAddress: lhs.localAddressSortValue == rhs.localAddressSortValue
+        case .localPort: lhs.localPortSortValue == rhs.localPortSortValue
+        case .remoteAddress: lhs.remoteAddressSortValue == rhs.remoteAddressSortValue
+        case .remotePort: lhs.remotePortSortValue == rhs.remotePortSortValue
+        case .state: lhs.state == rhs.state
+        case .bytesIn: lhs.bytesInSortValue == rhs.bytesInSortValue
+        case .bytesOut: lhs.bytesOutSortValue == rhs.bytesOutSortValue
+        case .inboundRate: lhs.bytesInRateSortValue == rhs.bytesInRateSortValue
+        case .outboundRate: lhs.bytesOutRateSortValue == rhs.bytesOutRateSortValue
+        }
     }
 }

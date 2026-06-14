@@ -432,6 +432,21 @@ public struct FirewallLiveConnectionsPage: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 360)
+            Picker("Sort by", selection: Binding(
+                get: { viewModel.liveConnectionsViewModel.sortField },
+                set: { viewModel.liveConnectionsViewModel.sortField = $0 }
+            )) {
+                ForEach(ConnectionSortField.allCases) { field in
+                    Text(field.rawValue).tag(field)
+                }
+            }
+            .frame(width: 160)
+            Button {
+                viewModel.liveConnectionsViewModel.sortAscending.toggle()
+            } label: {
+                Image(systemName: viewModel.liveConnectionsViewModel.sortAscending ? "arrow.up" : "arrow.down")
+            }
+            .help(viewModel.liveConnectionsViewModel.sortAscending ? "Ascending" : "Descending")
             Button("Geo Lookup") { viewModel.requestLookup() }
                 .disabled(!canLookupSelected)
             Menu("Lookup With...") {
@@ -456,36 +471,26 @@ public struct FirewallLiveConnectionsPage: View {
             get: { viewModel.liveConnectionsViewModel.selectedConnectionID },
             set: { viewModel.liveConnectionsViewModel.selectedConnectionID = $0 }
         )) {
-            TableColumn("Process") { connection in
-                Text(connection.processName).lineLimit(1).frame(width: 150, alignment: .leading)
-                    .contextMenu { contextMenu(for: connection) }
-            }
+            TableColumn("Process") { connection in processCell(connection) }
             .width(150)
-            TableColumn("PID") { Text($0.pid.map(String.init) ?? "-").monospacedDigit().frame(width: 64, alignment: .trailing) }
+            TableColumn("PID") { connection in numericCell(connection.pid.map(String.init) ?? "-", width: 64) }
                 .width(64)
-            TableColumn("Protocol") { Text($0.protocolKind.rawValue).frame(width: 72, alignment: .leading) }
+            TableColumn("Protocol") { connection in fixedCell(connection.protocolKind.rawValue, width: 72) }
                 .width(72)
-            TableColumn("Direction") { Text($0.direction.rawValue).frame(width: 92, alignment: .leading) }
-                .width(92)
-            TableColumn("Local Address") { Text($0.local.address).font(.system(.body, design: .monospaced)).lineLimit(1).frame(width: 160, alignment: .leading) }
-                .width(160)
-            TableColumn("Local Port") { Text($0.local.port).monospacedDigit().frame(width: 76, alignment: .trailing) }
-                .width(76)
-            TableColumn("Remote Address") { connection in
-                Text(connection.remote?.address ?? "-").font(.system(.body, design: .monospaced)).lineLimit(1).frame(width: 170, alignment: .leading)
-                    .contextMenu { contextMenu(for: connection) }
-            }
-            .width(170)
-            TableColumn("Remote Port") { Text($0.remote?.port ?? "-").monospacedDigit().frame(width: 84, alignment: .trailing) }
-                .width(84)
-            TableColumn("State") { Text($0.state.isEmpty ? "-" : $0.state).lineLimit(1).frame(width: 120, alignment: .leading) }
+            TableColumn("Local") { connection in monoCell(endpoint(connection.local), width: 210) }
+                .width(210)
+            TableColumn("Remote") { connection in remoteEndpointCell(connection) }
+                .width(230)
+            TableColumn("State") { connection in fixedCell(connection.state.isEmpty ? "-" : connection.state, width: 120) }
                 .width(120)
-            TableColumn("Block Status") { connection in
-                Text(status(for: connection))
-                    .foregroundStyle(status(for: connection) == "blocked" ? .red : .secondary)
-                    .frame(width: 92, alignment: .leading)
-            }
-            .width(92)
+            TableColumn("Bytes In") { connection in numericCell(formatBytes(connection.bytesIn), width: 90) }
+                .width(90)
+            TableColumn("Bytes Out") { connection in numericCell(formatBytes(connection.bytesOut), width: 90) }
+                .width(90)
+            TableColumn("In/s") { connection in numericCell(formatRate(connection.bytesInPerSecond), width: 82) }
+                .width(82)
+            TableColumn("Out/s") { connection in numericCell(formatRate(connection.bytesOutPerSecond), width: 82) }
+                .width(82)
         }
         .transaction { $0.animation = nil }
     }
@@ -501,6 +506,10 @@ public struct FirewallLiveConnectionsPage: View {
                 detail("PID", connection.pid.map(String.init) ?? "-")
                 detail("Protocol", connection.protocolKind.rawValue)
                 detail("State", connection.state.isEmpty ? "-" : connection.state)
+                detail("Bytes in", formatBytes(connection.bytesIn))
+                detail("Bytes out", formatBytes(connection.bytesOut))
+                detail("Inbound rate", formatRate(connection.bytesInPerSecond))
+                detail("Outbound rate", formatRate(connection.bytesOutPerSecond))
                 detail("First seen", Self.dateTimeFormatter.string(from: connection.firstSeen))
                 detail("Last seen", Self.dateTimeFormatter.string(from: connection.lastSeen))
                 Divider()
@@ -622,6 +631,62 @@ public struct FirewallLiveConnectionsPage: View {
             Spacer()
             Text(value).font(.system(.body, design: .monospaced)).textSelection(.enabled)
         }
+    }
+
+    private func processCell(_ connection: NetworkConnection) -> some View {
+        Text(connection.processName)
+            .lineLimit(1)
+            .frame(width: 150, alignment: .leading)
+            .contextMenu { contextMenu(for: connection) }
+    }
+
+    private func remoteCell(_ connection: NetworkConnection) -> some View {
+        Text(connection.remote?.address ?? "-")
+            .font(.system(.body, design: .monospaced))
+            .lineLimit(1)
+            .frame(width: 170, alignment: .leading)
+            .contextMenu { contextMenu(for: connection) }
+    }
+
+    private func remoteEndpointCell(_ connection: NetworkConnection) -> some View {
+        Text(connection.remote.map(endpoint) ?? "-")
+            .font(.system(.body, design: .monospaced))
+            .lineLimit(1)
+            .frame(width: 230, alignment: .leading)
+            .contextMenu { contextMenu(for: connection) }
+    }
+
+    private func fixedCell(_ value: String, width: CGFloat) -> some View {
+        Text(value)
+            .lineLimit(1)
+            .frame(width: width, alignment: .leading)
+    }
+
+    private func monoCell(_ value: String, width: CGFloat) -> some View {
+        Text(value)
+            .font(.system(.body, design: .monospaced))
+            .lineLimit(1)
+            .frame(width: width, alignment: .leading)
+    }
+
+    private func numericCell(_ value: String, width: CGFloat) -> some View {
+        Text(value)
+            .monospacedDigit()
+            .frame(width: width, alignment: .trailing)
+    }
+
+    private func endpoint(_ endpoint: NetworkEndpoint) -> String {
+        endpoint.port.isEmpty ? endpoint.address : "\(endpoint.address):\(endpoint.port)"
+    }
+
+    private func formatBytes(_ value: UInt64?) -> String {
+        guard let value else { return "-" }
+        return ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .binary)
+    }
+
+    private func formatRate(_ value: Double?) -> String {
+        guard let value else { return "-" }
+        return "\(ByteCountFormatter.string(fromByteCount: Int64(value.rounded()), countStyle: .binary))/s"
     }
 
     private func blockSelected() {
