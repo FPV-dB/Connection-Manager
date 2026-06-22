@@ -757,6 +757,7 @@ public struct RulesPreviewView: View {
 
 public struct FirewallSettingsView: View {
     @ObservedObject var viewModel: FirewallDashboardViewModel
+    @EnvironmentObject private var throughputMonitor: NetworkThroughputMonitor
     @State private var acknowledgedStartupRisk = false
     @State private var acknowledgedStrictRisk = false
 
@@ -813,6 +814,28 @@ public struct FirewallSettingsView: View {
                 Picker("Refresh interval", selection: $viewModel.settings.refreshInterval) {
                     ForEach(RefreshInterval.allCases) { Text($0.rawValue).tag($0) }
                 }
+            }
+
+            Section("Menu Bar Throughput") {
+                Toggle("Show live throughput in the menu bar", isOn: $throughputMonitor.displayEnabled)
+                Picker("Rate unit", selection: $throughputMonitor.rateUnit) {
+                    ForEach(ThroughputRateUnit.allCases) { unit in
+                        Text(unit.label).tag(unit)
+                    }
+                }
+                Picker("Update interval", selection: $throughputMonitor.updateInterval) {
+                    ForEach(ThroughputUpdateInterval.allCases) { interval in
+                        Text(interval.label).tag(interval)
+                    }
+                }
+                Picker("Display mode", selection: $throughputMonitor.displayMode) {
+                    ForEach(ThroughputDisplayMode.allCases) { mode in
+                        Text(mode.label).tag(mode)
+                    }
+                }
+                Text("Measures byte-counter deltas across active non-loopback interfaces. Current and peak rates remain available in the menu bar popover when the text display is hidden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Lookups") {

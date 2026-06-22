@@ -6,6 +6,7 @@ import SwiftUI
 struct LiveConnectionsMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var viewModel: FirewallDashboardViewModel
+    @StateObject private var throughputMonitor = NetworkThroughputMonitor()
 
     init() {
         let database: FirewallDatabase
@@ -30,6 +31,7 @@ struct LiveConnectionsMonitorApp: App {
     var body: some Scene {
         WindowGroup("Firewall Dashboard") {
             FirewallDashboardView(viewModel: viewModel)
+                .environmentObject(throughputMonitor)
                 .frame(minWidth: 1180, minHeight: 720)
                 .background(WindowCloseHider())
         }
@@ -50,20 +52,27 @@ struct LiveConnectionsMonitorApp: App {
             }
         }
 
-        MenuBarExtra("Connections", systemImage: "network") {
-            Button("Show Connections") {
-                NSApplication.shared.activate(ignoringOtherApps: true)
-                NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
-            }
-            Button("Refresh Now") {
-                viewModel.reload()
-                Task { await viewModel.liveConnectionsViewModel.refreshNow() }
-            }
-            Divider()
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-            }
+        MenuBarExtra {
+            NetworkThroughputPopover(
+                monitor: throughputMonitor,
+                showConnections: showConnections,
+                refreshConnections: refreshConnections,
+                quit: { NSApplication.shared.terminate(nil) }
+            )
+        } label: {
+            ThroughputMenuBarLabel(monitor: throughputMonitor)
         }
+        .menuBarExtraStyle(.window)
+    }
+
+    private func showConnections() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+    }
+
+    private func refreshConnections() {
+        viewModel.reload()
+        Task { await viewModel.liveConnectionsViewModel.refreshNow() }
     }
 }
 
