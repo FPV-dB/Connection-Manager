@@ -42,6 +42,8 @@ The main window is called **Firewall Dashboard** and includes:
 
 Closing the window hides it instead of quitting. The app remains available from the menu bar.
 
+![Connection Manager dashboard overview](docs/screenshots/dashboard-overview.png)
+
 ## Menu Bar Throughput
 
 Connection Manager can show live download and upload speed directly in the macOS menu bar.
@@ -65,6 +67,8 @@ Rate units can be auto-scaling or fixed:
 - Gb/sec
 
 The menu bar display uses fixed-width numeric formatting so the menu bar does not shift every time the speed changes.
+
+![Menu bar network throughput popover](docs/screenshots/menu-bar-throughput-popover.png)
 
 ## Data Milestone Sounds
 
@@ -95,6 +99,8 @@ Settings include:
 The feature uses the existing network byte counters. It does not create a second polling loop. If traffic jumps across multiple milestones in one sample, the app plays only one sound and advances the next milestone correctly.
 
 Custom audio files are stored with security-scoped bookmarks where macOS requires them. If a custom sound cannot be found later, the app falls back to the built-in tick and shows a non-fatal warning.
+
+![Data Milestone Sounds settings](docs/screenshots/settings-data-milestones.png)
 
 ## Firewall Model
 
@@ -174,6 +180,8 @@ Connections are deduplicated by:
 
 The app tracks first-seen and last-seen timestamps for live connection rows. Live connection rows are not persisted by default.
 
+![Live connections table with private rows redacted](docs/screenshots/live-connections.png)
+
 ## Applications View
 
 The Applications view groups observed network activity by application/process. It helps answer practical questions like:
@@ -183,6 +191,8 @@ The Applications view groups observed network activity by application/process. I
 - Which local process is associated with a remote endpoint?
 
 Application network history is stored separately from the firewall rule database and can be trimmed or cleared by app logic.
+
+![Applications network activity view](docs/screenshots/applications-network.png)
 
 ## Blocklists
 
