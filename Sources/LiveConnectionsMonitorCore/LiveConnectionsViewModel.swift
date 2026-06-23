@@ -109,8 +109,12 @@ public final class LiveConnectionsViewModel: ObservableObject {
             errorMessage = "Select a connection before blocking."
             return
         }
+        await requestBlock(connection: connection)
+    }
+
+    public func requestBlock(connection: NetworkConnection) async {
         guard let remoteIP = connection.remote?.address, !remoteIP.isEmpty else {
-            errorMessage = "The selected connection has no remote IP."
+            errorMessage = "This connection has no remote IP."
             return
         }
         switch await firewallService.safety(for: remoteIP) {

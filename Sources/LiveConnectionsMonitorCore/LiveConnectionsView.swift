@@ -103,42 +103,89 @@ public struct LiveConnectionsView: View {
     private var connectionTable: some View {
         Table(viewModel.filteredConnections, selection: $viewModel.selectedConnectionID) {
             TableColumn("Process") { connection in
-                Text(connection.processName)
-                    .lineLimit(1)
+                connectionCell(connection) {
+                    Text(connection.processName)
+                        .lineLimit(1)
+                }
             }
             TableColumn("PID") { connection in
-                Text(connection.pid.map(String.init) ?? "-")
-                    .monospacedDigit()
+                connectionCell(connection) {
+                    Text(connection.pid.map(String.init) ?? "-")
+                        .monospacedDigit()
+                }
             }
             TableColumn("Protocol") { connection in
-                Text(connection.protocolKind.rawValue)
+                connectionCell(connection) {
+                    Text(connection.protocolKind.rawValue)
+                }
             }
             TableColumn("Direction") { connection in
-                Text(connection.direction.rawValue)
+                connectionCell(connection) {
+                    Text(connection.direction.rawValue)
+                }
             }
             TableColumn("Local") { connection in
-                endpointText(connection.local)
+                connectionCell(connection) {
+                    endpointText(connection.local)
+                }
             }
             TableColumn("Remote") { connection in
-                if let remote = connection.remote {
-                    endpointText(remote)
-                } else {
-                    Text("-")
+                connectionCell(connection) {
+                    if let remote = connection.remote {
+                        endpointText(remote)
+                    } else {
+                        Text("-")
+                    }
                 }
             }
             TableColumn("State") { connection in
-                Text(connection.state.isEmpty ? "-" : connection.state)
+                connectionCell(connection) {
+                    Text(connection.state.isEmpty ? "-" : connection.state)
+                }
             }
             TableColumn("First Seen") { connection in
-                Text(Self.timeFormatter.string(from: connection.firstSeen))
-                    .monospacedDigit()
+                connectionCell(connection) {
+                    Text(Self.timeFormatter.string(from: connection.firstSeen))
+                        .monospacedDigit()
+                }
             }
             TableColumn("Last Seen") { connection in
-                Text(Self.timeFormatter.string(from: connection.lastSeen))
-                    .monospacedDigit()
+                connectionCell(connection) {
+                    Text(Self.timeFormatter.string(from: connection.lastSeen))
+                        .monospacedDigit()
+                }
             }
         }
         .transaction { $0.animation = nil }
+    }
+
+    private func connectionCell<Content: View>(
+        _ connection: NetworkConnection,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .contextMenu {
+                if let remoteIP = connection.remote?.address, !remoteIP.isEmpty {
+                    if viewModel.blockedIPs.contains(remoteIP) {
+                        Button {
+                            Task { await viewModel.unblock(ip: remoteIP) }
+                        } label: {
+                            Label("Unblock \(remoteIP)", systemImage: "lock.open")
+                        }
+                    } else {
+                        Button {
+                            Task { await viewModel.requestBlock(connection: connection) }
+                        } label: {
+                            Label("Block \(remoteIP)", systemImage: "hand.raised.fill")
+                        }
+                    }
+                } else {
+                    Button("No Remote IP") {}
+                        .disabled(true)
+                }
+            }
     }
 
     private func endpointText(_ endpoint: NetworkEndpoint) -> some View {

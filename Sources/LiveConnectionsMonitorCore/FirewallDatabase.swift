@@ -99,7 +99,12 @@ public final class FirewallDatabase: @unchecked Sendable {
                 case "confirmBeforeApplying": settings.confirmBeforeApplying = value != "0"
                 case "backupAnchorBeforeRewrite": settings.backupAnchorBeforeRewrite = value != "0"
                 case "anchorPath": if !value.isEmpty { settings.anchorPath = value }
-                case "anchorName": if !value.isEmpty { settings.anchorName = value }
+                case "anchorName":
+                    if !value.isEmpty {
+                        settings.anchorName = value == FirewallBlockService.legacyAnchorName
+                            ? FirewallBlockService.anchorName
+                            : value
+                    }
                 case "refreshInterval": settings.refreshInterval = RefreshInterval(rawValue: value) ?? .two
                 case "defaultLookupProviderID": if !value.isEmpty { settings.defaultLookupProviderID = value }
                 case "suppressLookupPrivacyWarning": settings.suppressLookupPrivacyWarning = value == "1"
@@ -111,6 +116,8 @@ public final class FirewallDatabase: @unchecked Sendable {
                 case "lastStartupSynchronizationAt": settings.lastStartupSynchronizationAt = Double(value).map(Date.init(timeIntervalSince1970:))
                 case "startupAnchorInstalled": settings.startupAnchorInstalled = value == "1"
                 case "startupRulesLoaded": settings.startupRulesLoaded = value == "1"
+                case "blockKnownGoogleConnections": settings.blockKnownGoogleConnections = value == "1"
+                case "googleRangesLastUpdatedAt": settings.googleRangesLastUpdatedAt = Double(value).map(Date.init(timeIntervalSince1970:))
                 default: break
                 }
             }
@@ -136,7 +143,9 @@ public final class FirewallDatabase: @unchecked Sendable {
                 ("lastStartupAt", settings.lastStartupAt.map { String($0.timeIntervalSince1970) } ?? ""),
                 ("lastStartupSynchronizationAt", settings.lastStartupSynchronizationAt.map { String($0.timeIntervalSince1970) } ?? ""),
                 ("startupAnchorInstalled", settings.startupAnchorInstalled ? "1" : "0"),
-                ("startupRulesLoaded", settings.startupRulesLoaded ? "1" : "0")
+                ("startupRulesLoaded", settings.startupRulesLoaded ? "1" : "0"),
+                ("blockKnownGoogleConnections", settings.blockKnownGoogleConnections ? "1" : "0"),
+                ("googleRangesLastUpdatedAt", settings.googleRangesLastUpdatedAt.map { String($0.timeIntervalSince1970) } ?? "")
             ] {
                 try execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [.text(key), .text(value)])
             }
@@ -189,6 +198,57 @@ public final class FirewallDatabase: @unchecked Sendable {
         try queue.sync {
             try execute("UPDATE blocklists SET is_enabled = ? WHERE blocklist_id = ?", [.int(enabled ? 1 : 0), .int(id)])
             try insertEventLocked(type: "Blocklist \(enabled ? "enabled" : "disabled")", message: "Updated blocklist \(id)", detail: "", succeeded: true)
+        }
+    }
+
+    public func replaceManagedBlocklist(name: String, sourceFilename: String, notes: String, entries: [String], enabled: Bool) throws {
+        try queue.sync {
+            try execute("BEGIN IMMEDIATE")
+            do {
+                let existingID = try rows(
+                    "SELECT blocklist_id FROM blocklists WHERE name = ? ORDER BY blocklist_id LIMIT 1",
+                    parameters: [.text(name)]
+                ).first?["blocklist_id"]?.int
+                let blocklistID: Int64
+                if let existingID {
+                    blocklistID = existingID
+                    try execute("DELETE FROM blocklist_entries WHERE blocklist_id = ?", [.int(blocklistID)])
+                    try execute("""
+                        UPDATE blocklists
+                        SET source_filename = ?, imported_at = ?, entry_count = ?, is_enabled = ?, notes = ?
+                        WHERE blocklist_id = ?
+                        """, [
+                            .text(sourceFilename), .double(Date().timeIntervalSince1970), .int(Int64(entries.count)),
+                            .int(enabled ? 1 : 0), .text(notes), .int(blocklistID)
+                        ])
+                } else {
+                    try execute("""
+                        INSERT INTO blocklists (name, source_filename, imported_at, entry_count, is_enabled, notes, last_applied_at)
+                        VALUES (?, ?, ?, ?, ?, ?, NULL)
+                        """, [
+                            .text(name), .text(sourceFilename), .double(Date().timeIntervalSince1970),
+                            .int(Int64(entries.count)), .int(enabled ? 1 : 0), .text(notes)
+                        ])
+                    blocklistID = sqlite3_last_insert_rowid(db)
+                }
+                for entry in entries {
+                    try execute("""
+                        INSERT OR IGNORE INTO blocklist_entries (blocklist_id, value, is_enabled, warning)
+                        VALUES (?, ?, 1, NULL)
+                        """, [.int(blocklistID), .text(entry)])
+                }
+                try insertEventLocked(type: "Managed blocklist refreshed", message: name, detail: "\(entries.count) ranges", succeeded: true)
+                try execute("COMMIT")
+            } catch {
+                try? execute("ROLLBACK")
+                throw error
+            }
+        }
+    }
+
+    public func setManagedBlocklistEnabled(name: String, enabled: Bool) throws {
+        try queue.sync {
+            try execute("UPDATE blocklists SET is_enabled = ? WHERE name = ?", [.int(enabled ? 1 : 0), .text(name)])
         }
     }
 

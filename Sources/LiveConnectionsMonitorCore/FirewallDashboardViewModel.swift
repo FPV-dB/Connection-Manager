@@ -30,6 +30,9 @@ public final class FirewallDashboardViewModel: ObservableObject {
     @Published public var loginItemStatus = "Unknown"
     @Published public var showStartupProtectionConfirmation = false
     @Published public var showStrictStartupConfirmation = false
+    @Published public var showGoogleBlockingConfirmation = false
+    @Published public var showGoogleDisableConfirmation = false
+    @Published public var googleBlockingProgress: String?
 
     public let liveConnectionsViewModel: LiveConnectionsViewModel
     private let database: FirewallDatabase
@@ -40,6 +43,7 @@ public final class FirewallDashboardViewModel: ObservableObject {
     private let networkToolRunner = NetworkToolRunner()
     private let loginItemService = LoginItemService()
     private let startupProtectionService = StartupProtectionService()
+    private let googleIPRangeService = GoogleIPRangeService()
 
     public init(database: FirewallDatabase, liveConnectionsViewModel: LiveConnectionsViewModel, firewallService: FirewallBlockService) {
         self.database = database
@@ -145,6 +149,64 @@ public final class FirewallDashboardViewModel: ObservableObject {
             liveConnectionsViewModel.refreshInterval = settings.refreshInterval
             try loginItemService.setEnabled(settings.launchAtLogin)
             reload()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    public var googleRangeCount: Int {
+        guard let blocklist = blocklists.first(where: { $0.name == GoogleIPRangeService.managedBlocklistName }) else { return 0 }
+        return blocklist.entryCount
+    }
+
+    public func requestGoogleBlocking(_ enabled: Bool) {
+        if enabled {
+            showGoogleBlockingConfirmation = true
+        } else {
+            showGoogleDisableConfirmation = true
+        }
+    }
+
+    public func enableGoogleBlocking() async {
+        showGoogleBlockingConfirmation = false
+        googleBlockingProgress = "Downloading Google's official IP range feeds..."
+        do {
+            let result = try await googleIPRangeService.fetchAllKnownRanges()
+            try database.replaceManagedBlocklist(
+                name: GoogleIPRangeService.managedBlocklistName,
+                sourceFilename: "goog.json + cloud.json",
+                notes: "Official Google service and Google Cloud customer ranges. Broad blocking preset.",
+                entries: result.ranges,
+                enabled: true
+            )
+            settings.blockKnownGoogleConnections = true
+            settings.googleRangesLastUpdatedAt = result.fetchedAt
+            try database.save(settings: settings)
+            try database.insertEvent(type: "Google blocking enabled", message: "Known Google ranges", detail: "\(result.ranges.count) ranges prepared", succeeded: true)
+            googleBlockingProgress = nil
+            reload()
+            await applyRulesIfAllowed()
+        } catch {
+            googleBlockingProgress = nil
+            try? database.insertEvent(type: "Google range refresh failed", message: "Known Google ranges", detail: error.localizedDescription, succeeded: false)
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    public func refreshGoogleRanges() async {
+        guard settings.blockKnownGoogleConnections else { return }
+        await enableGoogleBlocking()
+    }
+
+    public func disableGoogleBlocking() async {
+        showGoogleDisableConfirmation = false
+        do {
+            try database.setManagedBlocklistEnabled(name: GoogleIPRangeService.managedBlocklistName, enabled: false)
+            settings.blockKnownGoogleConnections = false
+            try database.save(settings: settings)
+            try database.insertEvent(type: "Google blocking disabled", message: "Known Google ranges", detail: "Managed ranges removed from generated rules", succeeded: true)
+            reload()
+            await applyRulesIfAllowed()
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -461,6 +523,7 @@ public final class FirewallDashboardViewModel: ObservableObject {
 public enum FirewallSection: String, CaseIterable, Identifiable, Sendable {
     case dashboard = "Dashboard"
     case liveConnections = "Live Connections"
+    case applications = "Applications"
     case blockedIPs = "Blocked IPs"
     case blocklists = "Blocklists"
     case countryBlocking = "Country Blocking"
@@ -474,6 +537,7 @@ public enum FirewallSection: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .dashboard: "gauge.with.dots.needle.67percent"
         case .liveConnections: "network"
+        case .applications: "app.connected.to.app.below.fill"
         case .blockedIPs: "shield"
         case .blocklists: "list.bullet.rectangle"
         case .countryBlocking: "globe"

@@ -58,10 +58,72 @@ public struct NetworkThroughputCalculator: Sendable {
 
 public enum ThroughputRateUnit: String, CaseIterable, Identifiable, Sendable {
     case bytes
+    case kilobytes
+    case megabytes
+    case gigabytes
     case bits
+    case kilobits
+    case megabits
+    case gigabits
 
     public var id: String { rawValue }
-    public var label: String { self == .bytes ? "Bytes/sec" : "Bits/sec" }
+
+    public var label: String {
+        switch self {
+        case .bytes: "Auto bytes/sec"
+        case .kilobytes: "KB/sec"
+        case .megabytes: "MB/sec"
+        case .gigabytes: "GB/sec"
+        case .bits: "Auto bits/sec"
+        case .kilobits: "Kb/sec"
+        case .megabits: "Mb/sec"
+        case .gigabits: "Gb/sec"
+        }
+    }
+
+    var usesBits: Bool {
+        switch self {
+        case .bits, .kilobits, .megabits, .gigabits:
+            true
+        case .bytes, .kilobytes, .megabytes, .gigabytes:
+            false
+        }
+    }
+
+    var fixedScale: Double? {
+        switch self {
+        case .bytes, .bits: nil
+        case .kilobytes, .kilobits: 1_000
+        case .megabytes, .megabits: 1_000_000
+        case .gigabytes, .gigabits: 1_000_000_000
+        }
+    }
+
+    var compactSuffix: String {
+        switch self {
+        case .bytes: "B"
+        case .kilobytes: "K"
+        case .megabytes: "M"
+        case .gigabytes: "G"
+        case .bits: "b"
+        case .kilobits: "K"
+        case .megabits: "M"
+        case .gigabits: "G"
+        }
+    }
+
+    var detailedSuffix: String {
+        switch self {
+        case .bytes: "B/s"
+        case .kilobytes: "KB/s"
+        case .megabytes: "MB/s"
+        case .gigabytes: "GB/s"
+        case .bits: "b/s"
+        case .kilobits: "Kb/s"
+        case .megabits: "Mb/s"
+        case .gigabits: "Gb/s"
+        }
+    }
 }
 
 public enum ThroughputUpdateInterval: Int, CaseIterable, Identifiable, Sendable {
@@ -82,13 +144,53 @@ public enum ThroughputDisplayMode: String, CaseIterable, Identifiable, Sendable 
 }
 
 public enum ThroughputFormatter {
+    public static func menuBarString(
+        bytesPerSecond: Double,
+        unit: ThroughputRateUnit,
+        compact: Bool
+    ) -> String {
+        let value = max(0, bytesPerSecond) * (unit.usesBits ? 8 : 1)
+
+        if let fixedScale = unit.fixedScale {
+            let scaled = value / fixedScale
+            let number = String(format: "%03d", min(999, Int(scaled.rounded())))
+            let suffix = compact ? unit.compactSuffix : " " + unit.detailedSuffix
+            return number + suffix
+        }
+
+        let compactUnits = unit.usesBits
+            ? ["b", "K", "M", "G", "T", "P"]
+            : ["B", "K", "M", "G", "T", "P"]
+        let detailedUnits = unit.usesBits
+            ? ["b/s", "Kb/s", "Mb/s", "Gb/s", "Tb/s", "Pb/s"]
+            : ["B/s", "KB/s", "MB/s", "GB/s", "TB/s", "PB/s"]
+
+        var scaled = value
+        var unitIndex = 0
+        while scaled.rounded() >= 1_000, unitIndex < compactUnits.count - 1 {
+            scaled /= 1_000
+            unitIndex += 1
+        }
+
+        let number = String(format: "%03d", min(999, Int(scaled.rounded())))
+        let suffix = compact ? compactUnits[unitIndex] : " " + detailedUnits[unitIndex]
+        return number + suffix
+    }
+
     public static func string(
         bytesPerSecond: Double,
         unit: ThroughputRateUnit,
         compact: Bool = false
     ) -> String {
-        let value = max(0, bytesPerSecond) * (unit == .bits ? 8 : 1)
-        let units = unit == .bits
+        let value = max(0, bytesPerSecond) * (unit.usesBits ? 8 : 1)
+
+        if let fixedScale = unit.fixedScale {
+            let scaled = value / fixedScale
+            let number = formattedNumber(scaled)
+            return compact ? number + unit.compactSuffix : number + " " + unit.detailedSuffix
+        }
+
+        let units = unit.usesBits
             ? ["b/s", "Kb/s", "Mb/s", "Gb/s"]
             : ["B/s", "KB/s", "MB/s", "GB/s"]
 
@@ -99,20 +201,23 @@ public enum ThroughputFormatter {
             unitIndex += 1
         }
 
-        let number: String
-        if unitIndex == 0 && scaled < 10 {
-            number = String(format: "%.0f", scaled)
-        } else if scaled < 100 {
-            number = String(format: "%.1f", scaled)
-        } else {
-            number = String(format: "%.0f", scaled)
-        }
+        let number = formattedNumber(scaled, isBaseUnit: unitIndex == 0)
 
         if compact {
-            let suffixes = unit == .bits ? ["b", "K", "M", "G"] : ["B", "K", "M", "G"]
+            let suffixes = unit.usesBits ? ["b", "K", "M", "G"] : ["B", "K", "M", "G"]
             return number + suffixes[unitIndex]
         }
         return number + " " + units[unitIndex]
+    }
+
+    private static func formattedNumber(_ value: Double, isBaseUnit: Bool = false) -> String {
+        if isBaseUnit && value < 10 {
+            String(format: "%.0f", value)
+        } else if value < 100 {
+            String(format: "%.1f", value)
+        } else {
+            String(format: "%.0f", value)
+        }
     }
 }
 
@@ -168,6 +273,7 @@ public final class NetworkThroughputMonitor: ObservableObject {
     @Published public private(set) var peakDownloadBytesPerSecond = 0.0
     @Published public private(set) var peakUploadBytesPerSecond = 0.0
     @Published public private(set) var history: [NetworkThroughputHistoryPoint] = []
+    public let dataMilestoneSoundManager: DataMilestoneSoundManager
 
     @Published public var displayEnabled: Bool {
         didSet { defaults.set(displayEnabled, forKey: DefaultsKey.displayEnabled) }
@@ -188,14 +294,17 @@ public final class NetworkThroughputMonitor: ObservableObject {
     private let defaults: UserDefaults
     private let counterReader: any NetworkCounterReading
     private var calculator = NetworkThroughputCalculator()
+    private var previousMilestoneCounters: NetworkByteCounters?
     private var samplingTask: Task<Void, Never>?
 
     public init(
         defaults: UserDefaults = .standard,
-        counterReader: any NetworkCounterReading = SystemNetworkCounterReader()
+        counterReader: any NetworkCounterReading = SystemNetworkCounterReader(),
+        dataMilestoneSoundManager: DataMilestoneSoundManager? = nil
     ) {
         self.defaults = defaults
         self.counterReader = counterReader
+        self.dataMilestoneSoundManager = dataMilestoneSoundManager ?? DataMilestoneSoundManager(defaults: defaults)
         displayEnabled = defaults.object(forKey: DefaultsKey.displayEnabled) as? Bool ?? true
         rateUnit = ThroughputRateUnit(rawValue: defaults.string(forKey: DefaultsKey.rateUnit) ?? "") ?? .bytes
         updateInterval = ThroughputUpdateInterval(rawValue: defaults.integer(forKey: DefaultsKey.updateInterval)) ?? .one
@@ -210,6 +319,7 @@ public final class NetworkThroughputMonitor: ObservableObject {
     private func restartSampling() {
         samplingTask?.cancel()
         calculator = NetworkThroughputCalculator()
+        previousMilestoneCounters = nil
         sample()
         let nanoseconds = UInt64(updateInterval.rawValue) * 1_000_000_000
         samplingTask = Task { [weak self] in
@@ -222,11 +332,23 @@ public final class NetworkThroughputMonitor: ObservableObject {
     }
 
     private func sample(at date: Date = Date()) {
-        let reading = calculator.sample(counters: counterReader.readCounters(), at: date)
+        let counters = counterReader.readCounters()
+        let reading = calculator.sample(counters: counters, at: date)
         current = reading
         peakDownloadBytesPerSecond = max(peakDownloadBytesPerSecond, reading.downloadBytesPerSecond)
         peakUploadBytesPerSecond = max(peakUploadBytesPerSecond, reading.uploadBytesPerSecond)
         history.append(NetworkThroughputHistoryPoint(timestamp: date, reading: reading))
         history.removeAll { date.timeIntervalSince($0.timestamp) > 60 }
+
+        if let previousMilestoneCounters,
+           counters.received >= previousMilestoneCounters.received,
+           counters.sent >= previousMilestoneCounters.sent {
+            dataMilestoneSoundManager.record(
+                downloadBytes: counters.received - previousMilestoneCounters.received,
+                uploadBytes: counters.sent - previousMilestoneCounters.sent,
+                at: date
+            )
+        }
+        previousMilestoneCounters = counters
     }
 }

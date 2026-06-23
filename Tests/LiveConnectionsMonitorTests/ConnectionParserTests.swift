@@ -94,3 +94,41 @@ import Testing
         Issue.record("Expected public IP lookup to be allowed")
     }
 }
+
+@Test func parsesOfficialGoogleIPRangeDocuments() throws {
+    let data = Data("""
+    {"syncToken":"1","prefixes":[
+      {"ipv4Prefix":"8.8.8.0/24"},
+      {"ipv6Prefix":"2001:4860::/32"},
+      {"service":"ignored"}
+    ]}
+    """.utf8)
+    let ranges = try GoogleIPRangeService().parse(data: data)
+    #expect(ranges == ["8.8.8.0/24", "2001:4860::/32"])
+}
+
+@Test func managedGoogleBlocklistRefreshReplacesEntries() throws {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent(UUID().uuidString)
+        .appendingPathExtension("sqlite")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let database = try FirewallDatabase(url: url)
+
+    try database.replaceManagedBlocklist(
+        name: GoogleIPRangeService.managedBlocklistName,
+        sourceFilename: "first",
+        notes: "test",
+        entries: ["8.8.8.0/24", "2001:4860::/32"],
+        enabled: true
+    )
+    try database.replaceManagedBlocklist(
+        name: GoogleIPRangeService.managedBlocklistName,
+        sourceFilename: "second",
+        notes: "test",
+        entries: ["8.8.4.0/24"],
+        enabled: true
+    )
+
+    #expect(try database.blocklists().filter { $0.name == GoogleIPRangeService.managedBlocklistName }.count == 1)
+    #expect(try database.entries().map(\.value) == ["8.8.4.0/24"])
+}

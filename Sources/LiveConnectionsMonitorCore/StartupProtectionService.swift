@@ -26,9 +26,9 @@ public struct LoginItemService: Sendable {
 }
 
 public actor StartupProtectionService {
-    public static let startupAnchor = "com.connectionmanager.startup"
-    public static let rulesAnchor = "com.connectionmanager.rules"
-    public static let blocklistsAnchor = "com.connectionmanager.blocklists"
+    public static let startupAnchor = "com.apple/com.connectionmanager.startup"
+    public static let rulesAnchor = "com.apple/com.connectionmanager.rules"
+    public static let blocklistsAnchor = "com.apple/com.connectionmanager.blocklists"
     public static let startupAnchorPath = "/etc/pf.anchors/com.connectionmanager.startup"
 
     private let runner: CommandRunner

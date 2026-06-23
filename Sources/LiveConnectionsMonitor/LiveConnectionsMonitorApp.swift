@@ -7,6 +7,7 @@ struct LiveConnectionsMonitorApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var viewModel: FirewallDashboardViewModel
     @StateObject private var throughputMonitor = NetworkThroughputMonitor()
+    @StateObject private var applicationNetworkViewModel: ApplicationNetworkViewModel
 
     init() {
         let database: FirewallDatabase
@@ -17,10 +18,21 @@ struct LiveConnectionsMonitorApp: App {
             fatalError("Unable to open firewall dashboard database: \(error.localizedDescription)")
         }
         let firewallService = FirewallBlockService()
+        let connectionMonitor = ConnectionMonitorService()
         let liveViewModel = LiveConnectionsViewModel(
-            monitorService: ConnectionMonitorService(),
+            monitorService: connectionMonitor,
             firewallService: firewallService
         )
+        let applicationDatabase: ApplicationNetworkDatabase
+        do {
+            applicationDatabase = try ApplicationNetworkDatabase()
+        } catch {
+            fatalError("Unable to open application network history: \(error.localizedDescription)")
+        }
+        _applicationNetworkViewModel = StateObject(wrappedValue: ApplicationNetworkViewModel(
+            provider: ProcessCounterAppNetworkProvider(connectionMonitor: connectionMonitor),
+            database: applicationDatabase
+        ))
         _viewModel = StateObject(wrappedValue: FirewallDashboardViewModel(
             database: database,
             liveConnectionsViewModel: liveViewModel,
@@ -32,6 +44,7 @@ struct LiveConnectionsMonitorApp: App {
         WindowGroup("Firewall Dashboard") {
             FirewallDashboardView(viewModel: viewModel)
                 .environmentObject(throughputMonitor)
+                .environmentObject(applicationNetworkViewModel)
                 .frame(minWidth: 1180, minHeight: 720)
                 .background(WindowCloseHider())
         }

@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 public struct FirewallDashboardView: View {
     @ObservedObject private var viewModel: FirewallDashboardViewModel
+    @EnvironmentObject private var applicationNetworkViewModel: ApplicationNetworkViewModel
     @State private var showingImporter = false
     @State private var showingCountryImporter = false
     @State private var manualValue = ""
@@ -35,6 +36,8 @@ public struct FirewallDashboardView: View {
                     dashboard
                 case .liveConnections:
                     FirewallLiveConnectionsPage(viewModel: viewModel)
+                case .applications:
+                    ApplicationsNetworkView(viewModel: applicationNetworkViewModel)
                 case .blockedIPs:
                     blockedIPs
                 case .blocklists:
@@ -810,6 +813,25 @@ public struct FirewallSettingsView: View {
                 TextField("App anchor name", text: $viewModel.settings.anchorName)
             }
 
+            Section("Known Provider Blocking") {
+                Toggle("Block all published Google and Google Cloud IP ranges", isOn: Binding(
+                    get: { viewModel.settings.blockKnownGoogleConnections },
+                    set: { viewModel.requestGoogleBlocking($0) }
+                ))
+                Text("Uses Google's official goog.json and cloud.json feeds. This is IP-range blocking, not hostname filtering, and includes customer-hosted Google Cloud services.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Managed ranges", value: viewModel.googleRangeCount.formatted())
+                LabeledContent("Last refreshed", value: viewModel.settings.googleRangesLastUpdatedAt.map(Self.dateFormatter.string(from:)) ?? "Never")
+                if let progress = viewModel.googleBlockingProgress {
+                    ProgressView(progress)
+                }
+                Button("Refresh Google Ranges") {
+                    Task { await viewModel.refreshGoogleRanges() }
+                }
+                .disabled(!viewModel.settings.blockKnownGoogleConnections || viewModel.googleBlockingProgress != nil)
+            }
+
             Section("Live Connections") {
                 Picker("Refresh interval", selection: $viewModel.settings.refreshInterval) {
                     ForEach(RefreshInterval.allCases) { Text($0.rawValue).tag($0) }
@@ -833,10 +855,12 @@ public struct FirewallSettingsView: View {
                         Text(mode.label).tag(mode)
                     }
                 }
-                Text("Measures byte-counter deltas across active non-loopback interfaces. Current and peak rates remain available in the menu bar popover when the text display is hidden.")
+                Text("Measures byte-counter deltas across active non-loopback interfaces. Choose auto-scaling or a fixed KB/MB/GB/Kb/Mb/Gb display unit for the menu bar and popover.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            DataMilestoneSoundsSettingsView(manager: throughputMonitor.dataMilestoneSoundManager)
 
             Section("Lookups") {
                 Picker("Default lookup provider", selection: $viewModel.settings.defaultLookupProviderID) {
@@ -873,6 +897,22 @@ public struct FirewallSettingsView: View {
         } message: {
             Text("Strict Startup Lock can block most network traffic until Connection Manager starts. Recovery: reopen Settings and use Rollback Startup Protection, or remove /etc/pf.anchors/com.connectionmanager.startup with administrator privileges and reload that anchor.")
         }
+        .alert("Block Known Google Connections?", isPresented: $viewModel.showGoogleBlockingConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Download Ranges and Continue", role: .destructive) {
+                Task { await viewModel.enableGoogleBlocking() }
+            }
+        } message: {
+            Text("This broad block includes Google Search, Gmail, YouTube, Android services, Chrome synchronization, reCAPTCHA, Firebase, Google APIs, and customer-hosted Google Cloud services. Many unrelated websites and apps may stop working. The official range feeds will be downloaded, previewed in the app-managed PF anchor, and applied through the normal administrator-confirmation flow.")
+        }
+        .alert("Disable Google Blocking?", isPresented: $viewModel.showGoogleDisableConfirmation) {
+            Button("Cancel", role: .cancel) {}
+            Button("Disable and Update Rules") {
+                Task { await viewModel.disableGoogleBlocking() }
+            }
+        } message: {
+            Text("The managed Google blocklist will remain stored for audit history but will be disabled and removed from generated PF rules.")
+        }
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -881,4 +921,106 @@ public struct FirewallSettingsView: View {
         formatter.timeStyle = .medium
         return formatter
     }()
+}
+
+private struct DataMilestoneSoundsSettingsView: View {
+    @ObservedObject var manager: DataMilestoneSoundManager
+
+    var body: some View {
+        Section("Data Milestone Sounds") {
+            Toggle("Enable milestone sounds", isOn: $manager.enabled)
+
+            Picker("Traffic direction", selection: $manager.direction) {
+                ForEach(DataMilestoneDirection.allCases) { direction in
+                    Text(direction.label).tag(direction)
+                }
+            }
+
+            HStack {
+                TextField("Threshold", value: $manager.thresholdValue, format: .number.precision(.fractionLength(0...2)))
+                    .frame(maxWidth: 120)
+                Picker("Unit", selection: $manager.thresholdUnit) {
+                    ForEach(DataMilestoneUnit.allCases) { unit in
+                        Text(unit.label).tag(unit)
+                    }
+                }
+                .labelsHidden()
+                Text("Current threshold: \(DataMilestoneSoundManager.formatBytes(manager.thresholdBytes))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Picker("Sound", selection: $manager.selectedSound) {
+                ForEach(DataMilestoneSoundSelection.allCases) { sound in
+                    Text(sound.label).tag(sound)
+                }
+            }
+
+            if manager.selectedSound == .systemSound {
+                Picker("System sound", selection: $manager.systemSoundName) {
+                    ForEach(DataMilestoneSoundManager.systemSoundNames, id: \.self) { soundName in
+                        Text(soundName).tag(soundName)
+                    }
+                }
+            }
+
+            if manager.selectedSound == .customFile {
+                HStack {
+                    Button("Choose Audio File") {
+                        manager.chooseCustomSound()
+                    }
+                    Text(manager.customSoundURL?.lastPathComponent ?? "No custom sound selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading) {
+                HStack {
+                    Text("Volume")
+                    Slider(value: $manager.volume, in: 0...1)
+                    Text("\(Int((manager.volume * 100).rounded()))%")
+                        .monospacedDigit()
+                        .frame(width: 44, alignment: .trailing)
+                }
+                HStack {
+                    TextField("Cooldown", value: $manager.cooldownSeconds, format: .number.precision(.fractionLength(0...1)))
+                        .frame(maxWidth: 120)
+                    Text("seconds between sounds")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                ProgressView(value: progressFraction)
+                Text(manager.progressDescription)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button("Test Sound") {
+                    manager.testSound()
+                }
+                Button("Reset Counter") {
+                    manager.resetCounter()
+                }
+            }
+
+            if let warningMessage = manager.warningMessage {
+                Text(warningMessage)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+            }
+
+            Text("Uses the existing menu-bar byte counters. Milestone progress persists across restarts, and audio playback is rate-limited so a large traffic jump only plays one sound.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var progressFraction: Double {
+        guard manager.thresholdBytes > 0 else { return 0 }
+        return min(1, max(0, Double(manager.currentIntervalBytes) / Double(manager.thresholdBytes)))
+    }
 }

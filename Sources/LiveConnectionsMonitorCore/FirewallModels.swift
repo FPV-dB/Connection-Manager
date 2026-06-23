@@ -167,6 +167,8 @@ public struct FirewallSettings: Hashable, Sendable {
     public var lastStartupSynchronizationAt: Date?
     public var startupAnchorInstalled = false
     public var startupRulesLoaded = false
+    public var blockKnownGoogleConnections = false
+    public var googleRangesLastUpdatedAt: Date?
 }
 
 public enum StartupProtectionMode: String, CaseIterable, Identifiable, Sendable {

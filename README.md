@@ -150,6 +150,12 @@ Before applying country blocks, review the simulation panel. Country-level block
 
 Allowlist entries are applied as overrides before rule generation. Private LAN, localhost, multicast, broadcast, and unspecified ranges are refused or warned by validation.
 
+## Known Google Range Blocking
+
+Settings includes an opt-in preset to block all IP/CIDR ranges published in Google's official `goog.json` and `cloud.json` feeds. The preset refreshes into one managed blocklist, participates in the normal PF rule preview and administrator-confirmation flow, and can be disabled without deleting its audit history.
+
+This is intentionally broad IP-range blocking. It can disrupt Google Search, Gmail, YouTube, Android services, Chrome synchronization, reCAPTCHA, Firebase, Google APIs, and unrelated customer services hosted on Google Cloud. Google updates these feeds frequently, so refresh the managed ranges periodically. Disable the preset and apply the updated anchor to restore access.
+
 ## PF Firewall Rules
 
 Blocking uses macOS PF through a dedicated app-managed anchor:

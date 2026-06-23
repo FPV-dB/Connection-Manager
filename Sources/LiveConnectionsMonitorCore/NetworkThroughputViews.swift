@@ -1,6 +1,7 @@
 import SwiftUI
 
 public struct ThroughputMenuBarLabel: View {
+    private static let stableContentWidth: CGFloat = 164
     @ObservedObject private var monitor: NetworkThroughputMonitor
 
     public init(monitor: NetworkThroughputMonitor) {
@@ -9,36 +10,54 @@ public struct ThroughputMenuBarLabel: View {
 
     public var body: some View {
         if monitor.displayEnabled {
-            if monitor.displayMode == .compact {
-                Text("D:\(compactDownload) U:\(compactUpload)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .monospacedDigit()
-                    .fixedSize()
-            } else {
-                Text("\(Image(systemName: "arrow.down")) \(download)  \(Image(systemName: "arrow.up")) \(upload)")
-                .font(.system(size: 11, weight: .medium))
-                .monospacedDigit()
-                .fixedSize()
+            Group {
+                if monitor.displayMode == .compact {
+                    Text("D:\(compactDownload) U:\(compactUpload)")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .monospacedDigit()
+                } else {
+                    Text("\(Image(systemName: "arrow.down")) \(download)  \(Image(systemName: "arrow.up")) \(upload)")
+                        .font(.system(size: 11, weight: .medium))
+                        .monospacedDigit()
+                }
             }
+            .lineLimit(1)
+            .frame(width: Self.stableContentWidth, alignment: .leading)
         } else {
             Image(systemName: "network")
         }
     }
 
     private var download: String {
-        ThroughputFormatter.string(bytesPerSecond: monitor.current.downloadBytesPerSecond, unit: monitor.rateUnit)
+        ThroughputFormatter.menuBarString(
+            bytesPerSecond: monitor.current.downloadBytesPerSecond,
+            unit: monitor.rateUnit,
+            compact: false
+        )
     }
 
     private var upload: String {
-        ThroughputFormatter.string(bytesPerSecond: monitor.current.uploadBytesPerSecond, unit: monitor.rateUnit)
+        ThroughputFormatter.menuBarString(
+            bytesPerSecond: monitor.current.uploadBytesPerSecond,
+            unit: monitor.rateUnit,
+            compact: false
+        )
     }
 
     private var compactDownload: String {
-        ThroughputFormatter.string(bytesPerSecond: monitor.current.downloadBytesPerSecond, unit: monitor.rateUnit, compact: true)
+        ThroughputFormatter.menuBarString(
+            bytesPerSecond: monitor.current.downloadBytesPerSecond,
+            unit: monitor.rateUnit,
+            compact: true
+        )
     }
 
     private var compactUpload: String {
-        ThroughputFormatter.string(bytesPerSecond: monitor.current.uploadBytesPerSecond, unit: monitor.rateUnit, compact: true)
+        ThroughputFormatter.menuBarString(
+            bytesPerSecond: monitor.current.uploadBytesPerSecond,
+            unit: monitor.rateUnit,
+            compact: true
+        )
     }
 }
 
@@ -92,6 +111,8 @@ public struct NetworkThroughputPopover: View {
                         .padding(6)
                 }
 
+            milestoneProgress
+
             HStack {
                 Button("Show Connections", action: showConnections)
                     .buttonStyle(.borderedProminent)
@@ -138,6 +159,35 @@ public struct NetworkThroughputPopover: View {
 
     private var peakUpload: String {
         ThroughputFormatter.string(bytesPerSecond: monitor.peakUploadBytesPerSecond, unit: monitor.rateUnit)
+    }
+
+    @ViewBuilder
+    private var milestoneProgress: some View {
+        let manager = monitor.dataMilestoneSoundManager
+        if manager.enabled {
+            VStack(alignment: .leading, spacing: 5) {
+                HStack {
+                    Label("Data Milestone Sounds", systemImage: "speaker.wave.2")
+                        .font(.caption)
+                    Spacer()
+                    Text(manager.direction.label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                ProgressView(value: milestoneFraction)
+                Text(manager.progressDescription)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(8)
+            .background(.quaternary.opacity(0.25), in: RoundedRectangle(cornerRadius: 7))
+        }
+    }
+
+    private var milestoneFraction: Double {
+        let manager = monitor.dataMilestoneSoundManager
+        guard manager.thresholdBytes > 0 else { return 0 }
+        return min(1, max(0, Double(manager.currentIntervalBytes) / Double(manager.thresholdBytes)))
     }
 }
 

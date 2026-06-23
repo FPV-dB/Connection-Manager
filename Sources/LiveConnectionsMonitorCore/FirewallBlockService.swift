@@ -7,7 +7,10 @@ public enum BlockSafety: Equatable, Sendable {
 }
 
 public actor FirewallBlockService {
-    public static let anchorName = "com.radioecology.blocked"
+    // /etc/pf.conf invokes com.apple/*, so this child anchor participates in filtering
+    // without rewriting the system PF configuration.
+    public static let anchorName = "com.apple/com.radioecology.blocked"
+    public static let legacyAnchorName = "com.radioecology.blocked"
     public static let anchorPath = "/etc/pf.anchors/com.radioecology.blocked"
 
     private let runner: CommandRunner
