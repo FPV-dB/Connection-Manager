@@ -107,13 +107,13 @@ Connection Manager uses macOS PF through app-managed anchors.
 The primary app anchor is:
 
 ```text
-com.radioecology.blocked
+com.connectionmanager.blocked
 ```
 
 The default anchor file is:
 
 ```text
-/etc/pf.anchors/com.radioecology.blocked
+/etc/pf.anchors/com.connectionmanager.blocked
 ```
 
 Generated blocking rules look like:
@@ -337,7 +337,7 @@ Applying PF rules requires administrator permission.
 The current implementation uses AppleScript administrator privileges to write the app anchor and reload only that anchor:
 
 ```sh
-pfctl -a com.radioecology.blocked -f /etc/pf.anchors/com.radioecology.blocked
+pfctl -a com.connectionmanager.blocked -f /etc/pf.anchors/com.connectionmanager.blocked
 pfctl -e
 ```
 

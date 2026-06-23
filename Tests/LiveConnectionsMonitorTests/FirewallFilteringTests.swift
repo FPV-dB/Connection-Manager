@@ -56,12 +56,14 @@ func capturedGoogleResolutionIsBlocked(hostname: String, address: String, expect
     #expect(StartupProtectionService.blocklistsAnchor.hasPrefix("com.apple/"))
 }
 
-@Test func legacySavedAnchorNameMigratesToReachableAnchor() throws {
+@Test func legacySavedAnchorSettingsMigrateToConnectionManagerAnchor() throws {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathExtension("sqlite")
     defer { try? FileManager.default.removeItem(at: url) }
     let database = try FirewallDatabase(url: url)
     var settings = FirewallSettings()
     settings.anchorName = FirewallBlockService.legacyAnchorName
+    settings.anchorPath = FirewallBlockService.legacyAnchorPath
     try database.save(settings: settings)
     #expect(try database.settings().anchorName == FirewallBlockService.anchorName)
+    #expect(try database.settings().anchorPath == FirewallBlockService.anchorPath)
 }

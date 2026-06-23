@@ -98,7 +98,12 @@ public final class FirewallDatabase: @unchecked Sendable {
                 case "autoApplyImportedBlocklists": settings.autoApplyImportedBlocklists = value == "1"
                 case "confirmBeforeApplying": settings.confirmBeforeApplying = value != "0"
                 case "backupAnchorBeforeRewrite": settings.backupAnchorBeforeRewrite = value != "0"
-                case "anchorPath": if !value.isEmpty { settings.anchorPath = value }
+                case "anchorPath":
+                    if !value.isEmpty {
+                        settings.anchorPath = value == FirewallBlockService.legacyAnchorPath
+                            ? FirewallBlockService.anchorPath
+                            : value
+                    }
                 case "anchorName":
                     if !value.isEmpty {
                         settings.anchorName = value == FirewallBlockService.legacyAnchorName

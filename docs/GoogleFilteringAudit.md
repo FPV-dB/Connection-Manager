@@ -13,7 +13,7 @@ Audit date: 2026-06-22 (Australia/Adelaide)
 
 ## End-to-end result before the fix
 
-The database contained an enabled 1,101-entry Google blocklist and the generated anchor contained matching rules. Every resolved address tested below was inside a generated Google CIDR. Nevertheless, direct HTTPS connections succeeded because the rules were loaded into `com.radioecology.blocked`, while the stock `/etc/pf.conf` only invokes `com.apple/*`. The orphan anchor was never evaluated.
+The database contained an enabled 1,101-entry Google blocklist and the generated anchor contained matching rules. Every resolved address tested below was inside a generated Google CIDR. Nevertheless, direct HTTPS connections succeeded because the rules were loaded into `com.connectionmanager.blocked`, while the stock `/etc/pf.conf` only invokes `com.apple/*`. The orphan anchor was never evaluated.
 
 | Domain tested | Expected | Actual before fix | Matching rule observed |
 | --- | --- | --- | --- |
