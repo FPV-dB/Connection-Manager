@@ -42,8 +42,6 @@ The main window is called **Firewall Dashboard** and includes:
 
 Closing the window hides it instead of quitting. The app remains available from the menu bar.
 
-![Connection Manager dashboard overview](docs/screenshots/dashboard-overview.png)
-
 ## Menu Bar Throughput
 
 Connection Manager can show live download and upload speed directly in the macOS menu bar.
